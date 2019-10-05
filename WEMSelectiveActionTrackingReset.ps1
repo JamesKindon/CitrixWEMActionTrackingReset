@@ -9,7 +9,10 @@ Aimed to address scenarios where you don't want to kill the entire action tracki
 Address challenges such as run once requirements or changes to requirements, USV changes which require a reset of the USV action tracking etc
 
 V1.0 - James Kindon - Initial release
+05.10.2019 - Updated to handle change of paths due to WEM Changes in 1909 onwards
 #>
+
+# https://www.business.com/articles/powershell-interactive-menu/
 
 # Define Reset Cache Function
 function ResetActionTracking {
@@ -71,7 +74,6 @@ function ResetActionTracking {
 }
 
 # Define Show-Menu Function
-# https://www.business.com/articles/powershell-interactive-menu/
 function Show-Menu {
     param (
         [string]$Title = 'Workspace Environment Management Selective Action Tracking Reset Utility'
@@ -105,8 +107,8 @@ function Show-Menu {
     Write-Host "Enter 'Q' to quit."
 }
 
-# Define Test-Registry Function
 # https://stackoverflow.com/questions/5648931/test-if-registry-value-exists
+# Define Test-Registry Function
 Function Test-RegistryValue($regkey, $name) {
     $exists = Get-ItemProperty -Path "$regkey" -Name "$name" -ErrorAction SilentlyContinue
     If (($exists -ne $null) -and ($exists.Length -ne 0)) {
@@ -122,18 +124,16 @@ function ConfirmAndKill {
         Write-host "There are $($ActionSet) tracking records availble to remove" -ForegroundColor Cyan
         #Remove Items
         $ConfirmDelete = Read-Host "Would you like to remove WEM $($ActionSet) tracking records? Enter Y or N"
-        while ("Y", "N" -notcontains $ConfirmDelete) {
+        while("Y","N" -notcontains $ConfirmDelete) {
             $ConfirmDelete = Read-Host "Enter Y or N"
         }
         if ($ConfirmDelete -eq "Y") {
             Write-Warning "Deleting WEM $($ActionSet) tracking records"
             $TrackingSet | Remove-Item -Force
-        }
-        elseif ($ConfirmDelete -eq "N") {
+        } elseif ($ConfirmDelete -eq "N") {
             Write-Host "No WEM $($ActionSet) Tracking Deleted"
         }
-    }
-    elseif ($TrackingSet.Count -eq "0") {
+    } elseif ($TrackingSet.Count -eq "0") {
         Write-Warning "There are no $($ActionSet) records to remove"
     }
 }
@@ -149,18 +149,16 @@ function ConfirmAndKillReg {
         Write-host "There are $($ActionSet) tracking records availble to remove" -ForegroundColor Cyan
         #Remove Items
         $ConfirmDelete = Read-Host "Would you like to remove WEM $($ActionSet) tracking records? Enter Y or N"
-        while ("Y", "N" -notcontains $ConfirmDelete) {
+        while("Y","N" -notcontains $ConfirmDelete) {
             $ConfirmDelete = Read-Host "Enter Y or N"
         }
         if ($ConfirmDelete -eq "Y") {
             Write-Warning "Deleting WEM $($ActionSet) tracking records"
             Remove-ItemProperty -Path $RootExecTrackingPath\$ActionSet -Name $UniqueRegKey
-        }
-        elseif ($ConfirmDelete -eq "N") {
+        } elseif ($ConfirmDelete -eq "N") {
             Write-Host "No WEM $($ActionSet) Tracking Deleted"
         }
-    }
-    elseif (!(Test-RegistryValue -regkey $RootExecTrackingPath\$ActionSet -name $UniqueRegKey)) {
+    } elseif (!(Test-RegistryValue -regkey $RootExecTrackingPath\$ActionSet -name $UniqueRegKey)) {
         Write-Warning "There are no $($ActionSet) records to remove"
     }
 }
@@ -171,18 +169,16 @@ function ConfirmAndKillPrinters {
         Write-host "There are $($ActionSet) tracking records availble to remove" -ForegroundColor Cyan
         #Remove Items
         $ConfirmDelete = Read-Host "Would you like to remove WEM $($ActionSet) tracking records? Enter Y or N"
-        while ("Y", "N" -notcontains $ConfirmDelete) {
+        while("Y","N" -notcontains $ConfirmDelete) {
             $ConfirmDelete = Read-Host "Enter Y or N"
         }
         if ($ConfirmDelete -eq "Y") {
             Write-Warning "Deleting WEM $($ActionSet) tracking records"
             Remove-ItemProperty -Path $RootExecTrackingPath -Name "UserSelectedDefaultPrinter"
-        }
-        elseif ($ConfirmDelete -eq "N") {
+        } elseif ($ConfirmDelete -eq "N") {
             Write-Host "No WEM $($ActionSet) Tracking Deleted"
         }
-    }
-    elseif (!(Test-RegistryValue -regkey $RootExecTrackingPath -name "UserSelectedDefaultPrinter")) {
+    } elseif (!(Test-RegistryValue -regkey $RootExecTrackingPath -name "UserSelectedDefaultPrinter")) {
         Write-Warning "There are no $($ActionSet) records to remove"
     }
 }
@@ -211,8 +207,14 @@ function ConfirmAndKillAll {
     }
 }
 
+function RefreshWEMCache {
+    Write-Verbose "Refreshing WEM Cache" -Verbose
+    Start-Process $AgentPath -ArgumentList "-refreshcache -BrokerName $($WEMBroker)"
+}
+
 # Get WEM Broker from Policy
-$WEMBroker = (Get-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Norskale\Agent Host\" -Name "BrokerSvcName").BrokerSvcName
+$Key = "HKLM:\SOFTWARE\Policies\Norskale\Agent Host\"
+$WEMBroker = (Get-ItemProperty -Path $Key -Name "BrokerSvcName").BrokerSvcName
 
 # Run Tool
 do {
@@ -306,7 +308,42 @@ do {
         } '22' {
             Clear-Host
             'You selected to refresh the WEM cache'
-            Start-Process 'C:\Program Files (x86)\Norskale\Norskale Agent Host\AgentCacheUtility.exe' -ArgumentList "-refreshcache -BrokerName $($WEMBroker)"
+            $OldService = "Norskale Agent Host Service"
+            $OldProcess = "Norskale Agent Host Service"
+            $OldPath = "C:\Program Files (x86)\Norskale\Norskale Agent Host\AgentCacheUtility.exe"
+
+            $NewService = "Citrix WEM Agent Host Service"
+            $NewProcess = "Citrix.Wem.Agent.Service"
+            $NewPath = "C:\Program Files (x86)\Citrix\Workspace Environment Management Agent\AgentCacheUtility.exe"
+
+            if (Get-Service -Name $OldService -ErrorAction SilentlyContinue) {
+                $ServiceName = $OldService
+                $ProcessName = $OldProcess
+                $AgentPath = $OldPath
+                Write-Verbose "This is an old install of WEM pre cloud release 1903 and on-prem 1909" -Verbose
+                RefreshWEMCache
+            }
+            else {
+                Write-Verbose "$($OldService) not found, looking for $($NewService)" -Verbose
+            }
+
+            if (Get-Service -Name $NewService -ErrorAction SilentlyContinue) {
+                $ServiceName = $NewService
+                $ProcessName = $NewProcess
+                Write-Verbose "This is a new install of WEM post cloud release 1903 and on-prem 1909" -Verbose
+                # Check for Upgraded Install
+                if (Test-Path -Path $OldPath -ErrorAction SilentlyContinue) {
+                    $AgentPath = $OldPath
+                    Write-Verbose "This is an upgraded install of WEM" -Verbose
+                    RefreshWEMCache
+                }
+                # Check for Clean Install
+                if (Test-Path -Path $NewPath -ErrorAction SilentlyContinue) {
+                    $AgentPath = $NewPath
+                    Write-Verbose "This is a new install of WEM" -Verbose
+                    RefreshWEMCache
+                }
+            }
         } 'q' {
             return
         }
@@ -314,6 +351,3 @@ do {
     pause
 }
 until ($input -eq 'q')
-
-
-
